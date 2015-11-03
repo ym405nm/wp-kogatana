@@ -1,0 +1,3 @@
+# WP-KOGATANA
+
+WP-PORTAL 連携プラグイン
