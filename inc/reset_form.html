@@ -1,0 +1,18 @@
+<div style="margin-top: 30px;">
+    <form action="" method="post" onsubmit="return reset_data()">
+        <input type="hidden" name="reset" value="reset">
+        <input type="hidden" name="reset-nonce" value="{{nonce}}">
+        <input type="submit" value="ログデータを消去する" class="button">
+    </form>
+</div>
+
+<script>
+    function reset_data() {
+        if (window.confirm('本当に削除しますか？\nこの処理はやりなおせません')) {
+            return true;
+        }
+        else {
+            return false;
+        }
+    }
+</script>

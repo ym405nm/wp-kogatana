@@ -13,11 +13,11 @@ class WpKogatana {
     public $table_name = 'kogatana';
 
 	function get_portal_icon() {
-		return plugins_url() . "/wp-kogatana/img/portal.png";
+		return plugins_url( 'img/portal.png', __FILE__ );
 	}
 
 	function get_loading_icon() {
-		return plugins_url() . "/wp-kogatana/img/loading.gif";
+		return plugins_url( 'img/loading.gif', __FILE__ );
 	}
 
 	function __construct() {
@@ -212,10 +212,37 @@ class WpKogatana {
 			$this->get_portal_icon() );
 	}
 
+	function reset_all_data(){
+		global $wpdb;
+		$table_name = $wpdb->prefix . $this->table_name;
+		$wpdb->query(
+			"truncate table `$table_name`"
+		);
+		return true;
+	}
+
 	function wp_kogatana_settings() {
-        $post_data  = false;
+		$post_error_mes = "";
+		$reset_data = false;
+		$post_data  = false;
+		$nonce_error_mes = "ページ遷移が正しくありません";
+		// リセット処理
+		if (array_key_exists("reset", $_POST)){
+			// nonce 検証
+			if(wp_verify_nonce($_POST['reset-nonce'], 'reset-nonce')){
+				$this->reset_all_data();
+				$reset_data = true;
+			}else{
+				$post_error_mes = $nonce_error_mes;
+			}
+		}
+		// 設定変更処理
         if (array_key_exists("kogatana", $_POST)) {
-            $post_data = WpKogatana::post_data($_POST["kogatana"]);
+			if(wp_verify_nonce($_POST['settings-nonce'], 'settings-nonce')){
+				$post_data = WpKogatana::post_data($_POST["kogatana"]);
+			}else{
+				$post_error_mes = $nonce_error_mes;
+			}
         }
 		wp_enqueue_style( "kogatana-default", plugins_url() . "/wp-kogatana/css/kogatana-default.css" );
 		wp_enqueue_style( "kogatana-table", plugins_url() . "/wp-kogatana/css/kogatana-table.css" );
@@ -226,8 +253,15 @@ class WpKogatana {
 		echo "<h1>WP PORTAL 攻撃ログチェッカー</h1>";
 		echo "<div id='link-portal'><span class='dashicons dashicons-share-alt2'></span><a href='https://wp-portal.net' target='_blank'> WP PORTAL にアクセスする</a></div>";
         if($post_data){
-            echo "<div class=\"updated fade\"><p><strong>設定を変更しました。</strong></p></div>";
+            echo "<div class=\"notice notice-success\"><p><strong>設定を変更しました。</strong></p></div>";
         }
+		if($reset_data){
+			echo "<div class=\"notice notice-success\"><p><strong>リセットしました。</strong></p></div>";
+		}
+		if(!empty($post_error_mes)){
+			$post_error_mes = esc_html($post_error_mes);
+			echo "<div class=\"notice notice-error\"><p><strong>$post_error_mes</strong></p></div>";
+		}
 		echo "<h2><span class=\"dashicons dashicons-testimonial\"></span> テーマ一覧</h2>";
 		echo "<div class=\"updated fade update-notice themes-update-notice\" ><p>テーマがあるプラグインがあります <a href='/wp-admin/update-core.php'>詳しく</a></p></div>";
 		echo "<table><tr><th>テーマ名</th><th>インストールされているバージョン</th><th>最新バージョン</th><th><img src=\"{$this->get_portal_icon()}\">WP PORTAL</th></tr>";
@@ -397,7 +431,10 @@ EOF;
         } else {
             $slack_url = "";
         }
-        $output_form = <<< EOF
+	    $reset_form_html = file_get_contents( plugin_dir_path( __FILE__ ) . '/inc/reset_form.html' );
+	    $reset_form_html = str_replace("{{nonce}}", wp_create_nonce( 'reset-nonce' ), $reset_form_html);
+        $settings_nonce = wp_create_nonce('settings-nonce');
+	    $output_form = <<< EOF
 <h2>設定</h2> 
 <form action="" method="post">
 <input type="checkbox" name="kogatana[log_send]" id="log_send"$log_send><label for="log_send">ログを WP PORTAL へ送信する（データは匿名化され分析後、公開される可能性があります）</label><br><br>
@@ -406,7 +443,10 @@ EOF;
 （
 <label for="slack_url">投稿先 Slack Incoming Hook の URL</label><input type="text" name="kogatana[slack_url]" id="slack_url" value="$slack_url" style="width:600px;">
 ）<br><br><br>
+<input type="hidden" name="settings-nonce" value="$settings_nonce">
 <input type="submit" class="button-primary" value="設定を更新">
+</form>
+$reset_form_html
 EOF;
 
         return $output_form;
