@@ -34,3 +34,58 @@ jQuery(".kogatana_updates").each(function(i, elem) {
     });
 });
 
+jQuery.ajax(
+    {
+        type: 'POST',
+        url: ajaxurl,
+        data: {
+            'action': 'kogatana_get_portal',
+            'data-type': 'plugins',
+            'api_token' : jQuery("#api_token").val()
+        },
+        success: function (response) {
+            output_portal(response, 'plugins');
+        }
+    }
+);
+jQuery.ajax(
+    {
+        type: 'POST',
+        url: ajaxurl,
+        data: {
+            'action': 'kogatana_get_portal',
+            'data-type': 'themes',
+            'api_token' : jQuery("#api_token").val()
+        },
+        success: function (response) {
+            output_portal(response, 'themes');
+        }
+    }
+);
+
+function output_portal(response, log_data_type){
+    var error = false;
+    if("error" in response){
+        error = true;
+    }
+    jQuery(".kogatana_updates").each(function(i, elem) {
+        var data_type = jQuery(elem).attr("data-type");
+        var data_name = jQuery(elem).attr("data-name");
+        var elem_id = jQuery(elem).attr("id");
+        var target_id = elem_id + "_portal";
+        if(data_name in response && data_type == log_data_type && !data_name.startsWith("twenty")){
+            // 合致する
+            jQuery("#" + target_id).css("color", "red");
+            jQuery("#" + target_id).css("font-weight", "bold");
+            jQuery("#" + target_id).text("ログあり");
+        }else{
+            if(data_type == log_data_type) {
+                if(error){
+                    jQuery("#" + target_id).text("エラー");
+                }else{
+                    jQuery("#" + target_id).text("ログなし");
+                }
+            }
+        }
+    });
+}

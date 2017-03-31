@@ -24,7 +24,9 @@ class WpKogatana {
 		add_action( 'admin_menu', array( $this, 'add_pages' ) );
 		add_action( 'wp_ajax_kogatana_update_info', array( __CLASS__, 'kogatana_update_info' ) );
 		add_action( 'wp_ajax_nopriv_kogatana_update_info', array( __CLASS__, 'kogatana_update_info' ) );
-        add_action('parse_request', array($this, 'handle_request'));
+		add_action( 'wp_ajax_kogatana_get_portal', array( __CLASS__, 'kogatana_get_portal' ) );
+		add_action( 'wp_ajax_nopriv_kogatana_get_portal', array( __CLASS__, 'kogatana_get_portal' ) );
+		add_action( 'parse_request', array( $this, 'handle_request' ) );
         add_action('wp_authenticate', array($this, 'handle_login'), 30, 2);
         register_activation_hook(__FILE__, array($this, 'activate'));
     }
@@ -50,11 +52,12 @@ class WpKogatana {
             )");
         }
         $default_options = array(
-            "log_send"     => false,
-            "log_password" => false,
-            "slack"        => false,
-            "slack_url"    => "",
-            "slack_token"  => ""
+	        "log_send"     => false,
+	        "log_password" => false,
+	        "slack"        => false,
+	        "slack_url"    => "",
+	        "slack_token"  => "",
+	        "api_token"    => ""
         );
         update_option("kogatana_settings", $default_options);
     }
@@ -240,6 +243,7 @@ class WpKogatana {
         if (array_key_exists("kogatana", $_POST)) {
 			if(wp_verify_nonce($_POST['settings-nonce'], 'settings-nonce')){
 				$post_data = WpKogatana::post_data($_POST["kogatana"]);
+
 			}else{
 				$post_error_mes = $nonce_error_mes;
 			}
@@ -280,7 +284,7 @@ class WpKogatana {
 <div id="kogatana_updates_{$theme_param_id}_result"><img src="{$this->get_loading_icon()}"></div>
 </td>
 <td>
-<div id="kogatana_updates_{$theme_param_id}_portal">ログなし</div>
+<div id="kogatana_updates_{$theme_param_id}_portal"><img src="{$this->get_loading_icon()}"></div>
 </td>
 </tr>
 EOF;
@@ -308,7 +312,7 @@ EOF;
 <div id="kogatana_updates_{$plugin_param_id}_result"><img src="{$this->get_loading_icon()}"></div>
 </td>
 <td>
-<div id="kogatana_updates_{$theme_param_id}_portal">ログなし</div>
+<div id="kogatana_updates_{$plugin_param_id}_portal"><img src="{$this->get_loading_icon()}"></div>
 </td>
 </tr>
 EOF;
@@ -355,11 +359,12 @@ EOF;
     function post_data($request_data)
     {
         $update_option = array(
-            "log_send"     => false,
-            "log_password" => false,
-            "slack"        => false,
-            "slack_url"    => "",
-            "slack_token"  => ""
+	        "log_send"     => false,
+	        "log_password" => false,
+	        "slack"        => false,
+	        "slack_url"    => "",
+	        "slack_token"  => "",
+	        "api_token"    => ""
         );
         if (array_key_exists("log_send", $request_data)) {
             $update_option["log_send"] = true;
@@ -376,7 +381,15 @@ EOF;
         if (array_key_exists("slack_token", $request_data)) {
             $update_option["slack_token"] = $request_data["slack_token"];
         }
+	    if ( array_key_exists( "api_token", $request_data ) ) {
+		    $update_option["api_token"] = $request_data["api_token"];
+	    }
         update_option('kogatana_settings', $update_option);
+
+	    // デバッグモードの場合 host パラメータがついてくる可能性がある
+	    if ( array_key_exists( "host", $request_data ) ) {
+		    update_option( "kogatana_host", $request_data["host"] );
+	    }
 
         return true;
     }
@@ -408,7 +421,52 @@ EOF;
 		die();
 	}
 
-    public function output_form()
+	public function kogatana_get_portal() {
+		$data_type   = $_POST["data-type"];
+		$api_token   = $_POST["api_token"];
+		$protocol    = "https://";
+		$path        = "/api/v1/rankings/";
+		$option_host = get_option( 'kogatana_host' );
+
+		// TOKEN 指定
+		$args = array(
+			'headers' => array(
+				'Authorization' => 'Bearer ' . $api_token
+			)
+		);
+
+		// デバッグ環境の場合 verify バイパス
+		if ( WP_DEBUG ) {
+			$args['sslverify'] = false;
+		}
+
+		if ( WP_DEBUG && $option_host ) {
+			$host = $option_host;
+		} else {
+			$host = "wp-portal.net";
+		}
+		$url      = $protocol . $host . $path . $data_type;
+		$response = wp_remote_request( $url, $args );
+		header( 'Content-Type: application/json; charset=utf-8' );
+		$response_body = $response['body'];
+		$response_body = json_decode( $response_body );
+		if(property_exists($response_body, "error")){
+			$result = array(
+				"error" => $response_body->error
+			);
+			echo json_encode($result);
+			die();
+		}
+		$result        = array();
+		foreach ( $response_body as $response_item ) {
+			$result[ $response_item->key ] = $response_item->doc_count;
+		}
+		echo json_encode( $result );
+		die();
+	}
+
+
+	public function output_form()
     {
         $options = get_option('kogatana_settings');
         if ($options["log_send"]) {
@@ -431,9 +489,20 @@ EOF;
         } else {
             $slack_url = "";
         }
+	    if ( $options["api_token"] && ! empty( $options["api_token"] ) ) {
+		    $api_token = esc_html( $options["api_token"] );
+	    } else {
+		    $api_token = "";
+	    }
 	    $reset_form_html = file_get_contents( plugin_dir_path( __FILE__ ) . '/inc/reset_form.html' );
 	    $reset_form_html = str_replace("{{nonce}}", wp_create_nonce( 'reset-nonce' ), $reset_form_html);
         $settings_nonce = wp_create_nonce('settings-nonce');
+	    if ( WP_DEBUG ) {
+		    $portal_host = get_option( "kogatana_host", "" );
+		    $debug_form  = "WP PORTAL ホスト名 : <input type=\"text\" name=\"kogatana[host]\" value=\"$portal_host\"><br>";
+	    } else {
+		    $debug_form = "";
+	    }
 	    $output_form = <<< EOF
 <h2>設定</h2> 
 <form action="" method="post">
@@ -442,9 +511,14 @@ EOF;
 <input type="checkbox" name="kogatana[slack]" id="slack"$slack><label for="slack">不信なリクエスト受信時にSlackに投稿する</label> ※ パフォーマンスが低下する恐れがあります<br>
 （
 <label for="slack_url">投稿先 Slack Incoming Hook の URL</label><input type="text" name="kogatana[slack_url]" id="slack_url" value="$slack_url" style="width:600px;">
-）<br><br><br>
+）<br>
 <input type="hidden" name="settings-nonce" value="$settings_nonce">
+$debug_form
+<label for="slack_url">WP PORTAL の API トークン : </label><input type="text" name="kogatana[api_token]" id="api_token" value="$api_token" style="width:600px;">
+<p>API トークンを取得するには、WP PORTALにログインして、右上のアイコンをクリックし、「アプリ連携」メニューから取得してください。 <a href="https://wp-portal.net" target="_blank">ログイン・新規登録はこちら</a></p>
+<br><br><br>
 <input type="submit" class="button-primary" value="設定を更新">
+
 </form>
 $reset_form_html
 EOF;
